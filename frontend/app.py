@@ -24,12 +24,12 @@ ROLE_HELP = {
 }
 
 
-def api(method: str, path: str, **kwargs) -> httpx.Response:
+def api(method: str, path: str, *, timeout: float = 120.0, **kwargs) -> httpx.Response:
     headers = kwargs.pop("headers", {})
     token = st.session_state.get("token")
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    with httpx.Client(timeout=120.0) as client:
+    with httpx.Client(timeout=timeout) as client:
         return client.request(method, f"{API_URL}{path}", headers=headers, **kwargs)
 
 
@@ -186,7 +186,8 @@ with st.sidebar:
             uploaded = st.file_uploader("Upload PDF", type=["pdf"])
             if uploaded and st.button("Index PDF", use_container_width=True):
                 files = {"file": (uploaded.name, uploaded.getvalue(), "application/pdf")}
-                response = api("POST", "/documents", files=files)
+                with st.spinner("Indexing PDF on the server (embeddings run on CPU — large files can take a few minutes)..."):
+                    response = api("POST", "/documents", files=files, timeout=600.0)
                 if response.status_code < 300:
                     rec = response.json()
                     st.success(f"Indexed {rec['title']} ({rec['pages']} pages, {rec['chunks']} chunks)")

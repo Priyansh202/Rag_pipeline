@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import asyncio
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -38,7 +41,7 @@ async def upload_pdf(
     if not payload:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     try:
-        return ingest_pdf(payload, filename)
+        return await asyncio.to_thread(ingest_pdf, payload, filename)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

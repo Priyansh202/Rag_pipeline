@@ -9,11 +9,10 @@ from langchain_core.documents import Document
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 from app.config import REGISTRY_PATH, get_settings
-from app.db.pgvector_store import vector_pool
 from app.models.schemas import DocumentRecord
 from app.retrieval.pdf_processor import extract_pdf_documents
 from app.retrieval.registry import add_record, document_count, list_sources
-from app.retrieval.vectorstore import add_documents
+from app.retrieval.vectorstore import add_documents, indexed_counts
 
 
 def migrate_local_registry() -> int:
@@ -92,11 +91,7 @@ def migrate_local_registry() -> int:
 
 
 def _indexed_counts() -> dict[tuple[str, str], int]:
-    with vector_pool().connection() as conn:
-        rows = conn.execute(
-            "SELECT source_type, source_id, COUNT(*) AS n FROM chunks GROUP BY source_type, source_id"
-        ).fetchall()
-    return {(row["source_type"], row["source_id"]): int(row["n"]) for row in rows}
+    return indexed_counts()
 
 
 def _reindex_pdf(record: DocumentRecord) -> int:
@@ -136,7 +131,7 @@ def _reindex_web(record: DocumentRecord) -> int:
 
 
 def reindex_missing_vectors() -> int:
-    """Rebuild vectors for any catalog row that lost its pgvector chunks."""
+    """Rebuild vectors for any catalog row that lost its vector index chunks."""
     catalog = list_sources()
     if not catalog.pdfs and not catalog.websites:
         return 0

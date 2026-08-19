@@ -60,7 +60,14 @@ class Settings(BaseSettings):
 
     scraperapi_key: str = ""
 
-    # Railway / hosted Postgres. When set, catalog + vectors share one database.
+    # Vector store: pinecone (hosted) or pgvector (local/docker).
+    vector_backend: str = "auto"  # auto | pinecone | pgvector
+    pinecone_api_key: str = ""
+    pinecone_index_name: str = "rag-chunks"
+    pinecone_cloud: str = "aws"
+    pinecone_region: str = "us-east-1"
+
+    # Railway / hosted Postgres. When set, catalog uses this database.
     database_url: str = ""
     database_url_private: str = ""
 
@@ -78,6 +85,7 @@ class Settings(BaseSettings):
 
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
     embedding_dim: int = 384
+    embedding_batch_size: int = 64
     chunk_size: int = 1000
     chunk_overlap: int = 200
     retrieval_k: int = 5
@@ -92,6 +100,18 @@ class Settings(BaseSettings):
 
     max_query_chars: int = 2000
     max_upload_mb: int = 80
+
+    @property
+    def uses_pinecone(self) -> bool:
+        if self.vector_backend == "pgvector":
+            return False
+        if self.vector_backend == "pinecone":
+            return bool(self.pinecone_api_key)
+        return bool(self.pinecone_api_key)
+
+    @property
+    def uses_pgvector(self) -> bool:
+        return not self.uses_pinecone
 
     @property
     def shared_dsn(self) -> str:
@@ -113,6 +133,8 @@ class Settings(BaseSettings):
 
     @property
     def vector_dsn(self) -> str:
+        if self.uses_pinecone:
+            return ""
         if self.shared_dsn:
             return self.shared_dsn
         return (
