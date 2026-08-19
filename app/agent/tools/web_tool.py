@@ -1,10 +1,12 @@
 from langchain_core.tools import tool
 
+from app.config import get_settings
 from app.models.schemas import Citation
 from app.retrieval.vectorstore import hybrid_search
 
 
-def search_web(query: str, k: int = 5) -> list[Citation]:
+def search_web(query: str, k: int | None = None) -> list[Citation]:
+    k = k or get_settings().retrieval_k
     hits = hybrid_search("web", query, k=k)
     citations: list[Citation] = []
     for doc, score in hits:
@@ -15,7 +17,7 @@ def search_web(query: str, k: int = 5) -> list[Citation]:
                 source_type="web",
                 title=meta.get("title", "Untitled page"),
                 locator=url or "unknown url",
-                snippet=doc.page_content[:300],
+                snippet=doc.page_content[:800],
                 score=float(score),
                 url=url,
             )

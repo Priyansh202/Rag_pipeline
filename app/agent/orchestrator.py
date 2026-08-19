@@ -37,7 +37,7 @@ def _format_context(citations: list[Citation]) -> str:
     blocks = []
     for i, item in enumerate(citations, 1):
         blocks.append(
-            f"[{i}] type={item.source_type} title={item.title} locator={item.locator}\n{item.snippet[:300]}"
+            f"[{i}] type={item.source_type} title={item.title} locator={item.locator}\n{item.snippet[:800]}"
         )
     return "\n\n".join(blocks)
 
