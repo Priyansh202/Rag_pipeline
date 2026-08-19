@@ -1,0 +1,42 @@
+{
+  "pdfs": [
+    {
+      "id": "49702a0ef3b84e2fbbc9deaf40690ef4",
+      "title": "sample_acme_handbook.pdf",
+      "kind": "pdf",
+      "pages": 3,
+      "url": null,
+      "chunks": 3,
+      "status": "ready",
+      "extra": {
+        "path": "C:\\Users\\praka\\Downloads\\rag\\data\\pdfs\\49702a0ef3b84e2fbbc9deaf40690ef4_sample_acme_handbook.pdf"
+      }
+    },
+    {
+      "id": "cc73075d69254a16b90d7ec96fff0aa4",
+      "title": "sample_acme_handbook.pdf",
+      "kind": "pdf",
+      "pages": 3,
+      "url": null,
+      "chunks": 3,
+      "status": "ready",
+      "extra": {
+        "path": "C:\\Users\\praka\\Downloads\\rag\\data\\pdfs\\cc73075d69254a16b90d7ec96fff0aa4_sample_acme_handbook.pdf"
+      }
+    }
+  ],
+  "websites": [
+    {
+      "id": "49472b48523c48b796c653d390db0edc",
+      "title": "Example Domain",
+      "kind": "web",
+      "pages": null,
+      "url": "https://example.com/",
+      "chunks": 1,
+      "status": "ready",
+      "extra": {
+        "cache_path": "C:\\Users\\praka\\Downloads\\rag\\data\\web_cache\\0f115db062b7c0dd.txt"
+      }
+    }
+  ]
+}

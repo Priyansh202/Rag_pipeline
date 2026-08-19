@@ -1,0 +1,69 @@
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.agent.llm import resolve_llm
+from app.api import auth, documents, query, websites
+from app.auth.rbac import ROLE_TOOLS
+from app.config import ensure_data_dirs
+from app.db.postgres import init_app_schema
+from app.db.pgvector_store import init_vector_schema
+from app.db.wait import wait_for_databases
+from app.retrieval.bootstrap import migrate_local_registry, reindex_missing_vectors
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    ensure_data_dirs()
+    wait_for_databases()
+    init_app_schema()
+    init_vector_schema()
+    try:
+        migrate_local_registry()
+        reindex_missing_vectors()
+    except Exception as exc:
+        print(f"Startup index rebuild skipped: {exc}")
+    try:
+        from app.retrieval.embeddings import get_embeddings
+
+        get_embeddings()
+    except Exception as exc:
+        print(f"Embedding warmup skipped: {exc}")
+    yield
+
+
+app = FastAPI(
+    title="Secure Multi-Source QA Agent",
+    description="JWT + RBAC gated PDF/web retrieval agent.",
+    version="1.1.0",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(auth.router)
+app.include_router(documents.router)
+app.include_router(websites.router)
+app.include_router(query.router)
+
+
+@app.get("/health")
+def health() -> dict:
+    from app.config import get_settings
+
+    settings = get_settings()
+    llm = resolve_llm()
+    return {
+        "status": "ok",
+        "llm_provider": llm.provider,
+        "llm_model": llm.model,
+        "shared_database": settings.uses_shared_database,
+        "roles": {role.value: sorted(tools) for role, tools in ROLE_TOOLS.items()},
+    }
