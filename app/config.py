@@ -84,8 +84,17 @@ class Settings(BaseSettings):
     pgvector_db: str = "rag_vectors"
 
     embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
-    embedding_dim: int = 384
+    embedding_provider: str = "auto"  # auto | voyage | local
+    embedding_dim: int = 512
     embedding_batch_size: int = 64
+
+    voyage_api_key: str = ""
+    voyage_model: str = "voyage-3-lite"
+    voyage_embed_batch_size: int = 24
+    voyage_batch_delay_s: float = 21.0
+    voyage_max_retries: int = 6
+    voyage_timeout_s: float = 60.0
+
     chunk_size: int = 1000
     chunk_overlap: int = 200
     retrieval_k: int = 5
@@ -100,6 +109,15 @@ class Settings(BaseSettings):
 
     max_query_chars: int = 2000
     max_upload_mb: int = 80
+
+    @property
+    def use_voyage_embeddings(self) -> bool:
+        if self.embedding_provider == "local":
+            return False
+        if self.embedding_provider == "voyage":
+            return bool(self.voyage_api_key)
+        # auto: prefer Voyage when key is set (Railway-friendly, low memory).
+        return bool(self.voyage_api_key)
 
     @property
     def uses_pinecone(self) -> bool:

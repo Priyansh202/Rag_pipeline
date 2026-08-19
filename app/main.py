@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -32,15 +33,10 @@ async def lifespan(_: FastAPI):
     _init_vector_store()
     try:
         migrate_local_registry()
-        reindex_missing_vectors()
+        if os.environ.get("SKIP_STARTUP_REINDEX", "0") != "1":
+            reindex_missing_vectors()
     except Exception as exc:
         print(f"Startup index rebuild skipped: {exc}")
-    try:
-        from app.retrieval.embeddings import get_embeddings
-
-        get_embeddings()
-    except Exception as exc:
-        print(f"Embedding warmup skipped: {exc}")
     yield
 
 
@@ -76,6 +72,9 @@ def health() -> dict:
         "llm_provider": llm.provider,
         "llm_model": llm.model,
         "vector_backend": "pinecone" if settings.uses_pinecone else "pgvector",
+        "embedding_provider": "voyage" if settings.use_voyage_embeddings else "local",
+        "embedding_model": settings.voyage_model if settings.use_voyage_embeddings else settings.embedding_model,
+        "embedding_dim": settings.embedding_dim,
         "catalog_database": settings.uses_shared_database,
         "roles": {role.value: sorted(tools) for role, tools in ROLE_TOOLS.items()},
     }

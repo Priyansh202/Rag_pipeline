@@ -11,7 +11,6 @@ langchain-community>=0.3.14
 langchain-text-splitters>=0.3.4
 faiss-cpu>=1.9.0; sys_platform != "win32"
 numpy>=2.0.0
-sentence-transformers>=3.3.0
 
 pymupdf>=1.24.14
 beautifulsoup4>=4.12.3

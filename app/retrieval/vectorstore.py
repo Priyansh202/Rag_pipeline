@@ -66,7 +66,9 @@ def count_chunks_for_source(kind: SourceType, source_id: str) -> int:
     if _uses_pinecone():
         from app.db import pinecone_store
 
-        return len(pinecone_store.list_chunk_ids(source_id))
+        # Only need "exists or not" to decide whether to reindex.
+        # Listing all chunk ids can be extremely slow for large PDFs.
+        return 1 if pinecone_store.has_any_vectors_for_source(source_id) else 0
 
     from app.db.pgvector_store import vector_pool
 

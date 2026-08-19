@@ -44,6 +44,8 @@ async def upload_pdf(
         return await asyncio.to_thread(ingest_pdf, payload, filename)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.delete("/{doc_id}", response_model=MessageResponse)

@@ -186,7 +186,7 @@ with st.sidebar:
             uploaded = st.file_uploader("Upload PDF", type=["pdf"])
             if uploaded and st.button("Index PDF", use_container_width=True):
                 files = {"file": (uploaded.name, uploaded.getvalue(), "application/pdf")}
-                with st.spinner("Indexing PDF on the server (embeddings run on CPU — large files can take a few minutes)..."):
+                with st.spinner("Indexing PDF (Voyage embeddings — may take 1–2 min on free tier)..."):
                     response = api("POST", "/documents", files=files, timeout=600.0)
                 if response.status_code < 300:
                     rec = response.json()

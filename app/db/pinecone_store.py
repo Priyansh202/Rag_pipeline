@@ -80,13 +80,58 @@ def fetch_vectors(ids: list[str]) -> dict[str, list[float]]:
     return out
 
 
+def _extract_chunk_id(item: Any) -> str | None:
+    if isinstance(item, str):
+        return item
+    chunk_id = getattr(item, "id", None)
+    return str(chunk_id) if chunk_id else None
+
+
 def list_chunk_ids(source_id: str) -> list[str]:
     index = pinecone_index()
     prefix = f"{source_id}:"
     ids: list[str] = []
-    for batch in index.list(prefix=prefix, limit=100):
-        ids.extend(batch)
+
+    def consume(response: Any) -> str | None:
+        for item in getattr(response, "vectors", None) or []:
+            chunk_id = _extract_chunk_id(item)
+            if chunk_id:
+                ids.append(chunk_id)
+        pagination = getattr(response, "pagination", None)
+        return getattr(pagination, "next", None) if pagination else None
+
+    def walk_pages(pages: Any) -> None:
+        if hasattr(pages, "vectors"):
+            token = consume(pages)
+            while token:
+                token = consume(index.list(prefix=prefix, limit=100, pagination_token=token))
+            return
+        for response in pages:
+            token = consume(response)
+            while token:
+                token = consume(index.list(prefix=prefix, limit=100, pagination_token=token))
+
+    walk_pages(index.list(prefix=prefix, limit=100))
     return ids
+
+
+def has_any_vectors_for_source(source_id: str) -> bool:
+    """Cheap existence check used during startup reindexing.
+
+    We only ask Pinecone for 1 vector with the given id prefix.
+    """
+    index = pinecone_index()
+    prefix = f"{source_id}:"
+    pages = index.list(prefix=prefix, limit=1)
+
+    # Depending on SDK version, `index.list(...)` can return a generator or a single response.
+    if hasattr(pages, "vectors"):
+        return bool(getattr(pages, "vectors", None))
+    try:
+        first = next(pages)
+    except StopIteration:
+        return False
+    return bool(getattr(first, "vectors", None))
 
 
 def delete_ids(ids: list[str]) -> int:
