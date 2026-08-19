@@ -3,8 +3,6 @@ builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
 
 [deploy]
-startCommand = "python scripts/start_api.py"
-healthcheckPath = "/health"
-healthcheckTimeout = 300
+startCommand = "python scripts/start_railway.py"
 restartPolicyType = "ON_FAILURE"
 restartPolicyMaxRetries = 5
