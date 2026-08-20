@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, HttpUrl
 
@@ -31,8 +31,14 @@ class TokenResponse(BaseModel):
     allowed_tools: list[str]
 
 
+class ChatTurn(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=4000)
+
+
 class QueryRequest(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
+    history: list[ChatTurn] = Field(default_factory=list)
 
 
 class Citation(BaseModel):

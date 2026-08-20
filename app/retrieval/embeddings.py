@@ -28,7 +28,7 @@ class VoyageEmbeddings(Embeddings):
     ):
         self.api_key = api_key
         self.model = model
-        self.batch_size = max(1, batch_size)
+        self.batch_size = min(128, max(1, batch_size))
         self.batch_delay_s = max(0.0, batch_delay_s)
         self.max_retries = max(1, max_retries)
         self.timeout_s = timeout_s

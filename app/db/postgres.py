@@ -20,6 +20,19 @@ CREATE TABLE IF NOT EXISTS documents (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS documents_kind_idx ON documents (kind);
+
+CREATE TABLE IF NOT EXISTS chunk_texts (
+    id TEXT PRIMARY KEY,
+    source_id TEXT NOT NULL,
+    source_type TEXT NOT NULL CHECK (source_type IN ('pdf', 'web')),
+    title TEXT NOT NULL,
+    page INTEGER,
+    url TEXT,
+    chunk_index INTEGER NOT NULL DEFAULT 0,
+    content TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS chunk_texts_source_type_idx ON chunk_texts (source_type);
+CREATE INDEX IF NOT EXISTS chunk_texts_source_id_idx ON chunk_texts (source_id);
 """
 
 

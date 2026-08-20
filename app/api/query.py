@@ -16,7 +16,7 @@ router = APIRouter(prefix="/query", tags=["query"])
 def ask(body: QueryRequest, user: CurrentUser = Depends(get_current_user)) -> QueryResponse:
     settings = get_settings()
     question = sanitize_query(body.question, max_chars=settings.max_query_chars)
-    return run_agent(question, user.role)
+    return run_agent(question, user.role, body.history)
 
 
 @router.post("/stream")
@@ -25,7 +25,7 @@ def ask_stream(body: QueryRequest, user: CurrentUser = Depends(get_current_user)
     question = sanitize_query(body.question, max_chars=settings.max_query_chars)
 
     def events():
-        for event in stream_agent(question, user.role):
+        for event in stream_agent(question, user.role, body.history):
             yield f"data: {json.dumps(event, default=str)}\n\n"
 
     return StreamingResponse(

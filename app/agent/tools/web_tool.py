@@ -17,7 +17,7 @@ def search_web(query: str, k: int | None = None) -> list[Citation]:
                 source_type="web",
                 title=meta.get("title", "Untitled page"),
                 locator=url or "unknown url",
-                snippet=doc.page_content[:800],
+                snippet=doc.page_content,
                 score=float(score),
                 url=url,
             )

@@ -1,8 +1,4 @@
-"""Simple BM25 scorer for hybrid search re-ranking.
-
-This is intentionally lightweight (no external search engine). We compute IDF
-over the candidate set retrieved by pgvector, then score each candidate.
-"""
+"""Lightweight BM25 scorer for full-corpus keyword retrieval and hybrid merge."""
 
 from __future__ import annotations
 
@@ -92,4 +88,12 @@ def bm25_scores(
             score += idf * (numer / max(denom, 1e-12))
         scores.append(score)
     return scores
+
+
+def bm25_top_indices(scores: list[float], k: int) -> list[int]:
+    """Return indices of the top-k highest BM25 scores."""
+    if not scores or k <= 0:
+        return []
+    ranked = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)
+    return ranked[:k]
 

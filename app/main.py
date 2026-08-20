@@ -10,7 +10,7 @@ from app.auth.rbac import ROLE_TOOLS
 from app.config import ensure_data_dirs, get_settings
 from app.db.postgres import init_app_schema
 from app.db.wait import wait_for_databases
-from app.retrieval.bootstrap import migrate_local_registry, reindex_missing_vectors
+from app.retrieval.bootstrap import backfill_chunk_texts, migrate_local_registry, reindex_missing_vectors
 
 
 def _init_vector_store() -> None:
@@ -35,6 +35,7 @@ async def lifespan(_: FastAPI):
         migrate_local_registry()
         if os.environ.get("SKIP_STARTUP_REINDEX", "0") != "1":
             reindex_missing_vectors()
+        backfill_chunk_texts()
     except Exception as exc:
         print(f"Startup index rebuild skipped: {exc}")
     yield

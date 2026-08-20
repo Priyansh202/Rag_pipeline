@@ -17,7 +17,7 @@ def search_pdfs(query: str, k: int | None = None) -> list[Citation]:
                 source_type="pdf",
                 title=meta.get("title", "Untitled PDF"),
                 locator=f"p. {page}" if page else "unknown page",
-                snippet=doc.page_content[:800],
+                snippet=doc.page_content,
                 score=float(score),
                 page=page,
             )

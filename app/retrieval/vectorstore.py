@@ -124,9 +124,7 @@ def _pg_insert_chunks(rows: list[tuple]) -> None:
 
     if not rows:
         return
-    with vector_pool().connection() as conn:
-        conn.executemany(
-            """
+    sql = """
             INSERT INTO chunks (
                 id, source_id, source_type, title, page, url,
                 chunk_index, content, embedding
@@ -138,9 +136,10 @@ def _pg_insert_chunks(rows: list[tuple]) -> None:
                 chunk_index = EXCLUDED.chunk_index,
                 content = EXCLUDED.content,
                 embedding = EXCLUDED.embedding
-            """,
-            rows,
-        )
+            """
+    with vector_pool().connection() as conn:
+        for record in rows:
+            conn.execute(sql, record)
 
 
 def _insert_chunks(kind: SourceType, rows: list[tuple]) -> None:
@@ -150,6 +149,9 @@ def _insert_chunks(kind: SourceType, rows: list[tuple]) -> None:
         _pinecone_upsert_rows(kind, rows)
     else:
         _pg_insert_chunks(rows)
+    from app.db import chunk_catalog
+
+    chunk_catalog.upsert_chunk_rows(rows)
 
 
 def add_documents(kind: SourceType, documents: list[Document]) -> int:
@@ -231,7 +233,11 @@ def sync_documents(kind: SourceType, source_id: str, documents: list[Document]) 
         from app.db import pinecone_store
 
         if to_remove:
-            pinecone_store.delete_ids([existing_by_hash[h] for h in to_remove])
+            remove_ids = [existing_by_hash[h] for h in to_remove]
+            pinecone_store.delete_ids(remove_ids)
+            from app.db import chunk_catalog
+
+            chunk_catalog.delete_ids(remove_ids)
         if reused:
             reused_ids = [existing_by_hash[h] for h in reused]
             fetched = pinecone_store.fetch_vectors(reused_ids)
@@ -259,16 +265,22 @@ def sync_documents(kind: SourceType, source_id: str, documents: list[Document]) 
                     )
                 )
             _pinecone_upsert_rows(kind, reuse_rows)
+            if reuse_rows:
+                from app.db import chunk_catalog
+
+                chunk_catalog.upsert_chunk_rows(reuse_rows)
             to_add = to_add | extra_add
     else:
         from app.db.pgvector_store import vector_pool
 
         with vector_pool().connection() as conn:
+            reuse_rows: list[tuple] = []
             for content_hash in to_remove:
                 conn.execute("DELETE FROM chunks WHERE id = %s", (existing_by_hash[content_hash],))
             for content_hash in reused:
                 doc = new_by_hash[content_hash]
                 meta = doc.metadata or {}
+                chunk_id = existing_by_hash[content_hash]
                 conn.execute(
                     """
                     UPDATE chunks
@@ -280,9 +292,29 @@ def sync_documents(kind: SourceType, source_id: str, documents: list[Document]) 
                         meta.get("page"),
                         int(meta.get("chunk_index") or 0),
                         doc.page_content,
-                        existing_by_hash[content_hash],
+                        chunk_id,
                     ),
                 )
+                reuse_rows.append(
+                    (
+                        chunk_id,
+                        source_id,
+                        kind,
+                        meta.get("title") or "Untitled",
+                        meta.get("page"),
+                        meta.get("url"),
+                        int(meta.get("chunk_index") or 0),
+                        doc.page_content,
+                    )
+                )
+            if to_remove:
+                from app.db import chunk_catalog
+
+                chunk_catalog.delete_ids([existing_by_hash[h] for h in to_remove])
+            if reuse_rows:
+                from app.db import chunk_catalog
+
+                chunk_catalog.upsert_chunk_rows(reuse_rows)
 
     docs_to_add = [new_by_hash[content_hash] for content_hash in to_add]
     if docs_to_add:
@@ -309,18 +341,20 @@ def sync_documents(kind: SourceType, source_id: str, documents: list[Document]) 
         else:
             from app.db.pgvector_store import vector_pool
 
-            with vector_pool().connection() as conn:
-                conn.executemany(
-                    """
+            sql = """
                     INSERT INTO chunks (
                         id, source_id, source_type, title, page, url,
                         chunk_index, content, embedding
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (id) DO NOTHING
-                    """,
-                    rows,
-                )
+                    """
+            with vector_pool().connection() as conn:
+                for record in rows:
+                    conn.execute(sql, record)
+        from app.db import chunk_catalog
+
+        chunk_catalog.upsert_chunk_rows(rows)
 
     return {
         "added": len(to_add),
@@ -378,7 +412,7 @@ def _vector_candidates(kind: SourceType, query: str, k: int) -> list[dict]:
         query_vector = get_embeddings().embed_query(query)
         rows = conn.execute(
             """
-            SELECT content, title, page, url, source_id, chunk_index,
+            SELECT id, content, title, page, url, source_id, chunk_index,
                    (embedding <=> %s::vector) AS distance
             FROM chunks
             WHERE source_type = %s
@@ -390,28 +424,97 @@ def _vector_candidates(kind: SourceType, query: str, k: int) -> list[dict]:
     return rows
 
 
+def _fetch_corpus_from_pgvector(kind: SourceType) -> list[dict]:
+    from app.db.pgvector_store import vector_pool
+
+    with vector_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, source_id, source_type, title, page, url, chunk_index, content
+            FROM chunks
+            WHERE source_type = %s
+            ORDER BY source_id, chunk_index
+            """,
+            (kind,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def _corpus_for_kind(kind: SourceType) -> list[dict]:
+    from app.db import chunk_catalog
+
+    rows = chunk_catalog.fetch_all_for_kind(kind)
+    if rows:
+        return rows
+    if not _uses_pinecone():
+        return _fetch_corpus_from_pgvector(kind)
+    return []
+
+
+def _bm25_candidates(kind: SourceType, query: str, k: int) -> list[dict]:
+    settings = get_settings()
+    corpus = _corpus_for_kind(kind)
+    if not corpus:
+        return []
+    from app.db import chunk_catalog
+
+    return chunk_catalog.top_bm25_for_kind(
+        kind,
+        query,
+        k,
+        k1=settings.hybrid_bm25_k1,
+        b=settings.hybrid_bm25_b,
+        corpus=corpus,
+    )
+
+
+def _row_chunk_id(row: dict) -> str:
+    chunk_id = row.get("id")
+    if chunk_id:
+        return str(chunk_id)
+    source_id = str(row.get("source_id") or "")
+    return _chunk_id(source_id, chunk_text_hash(str(row.get("content") or "")))
+
+
 def hybrid_search(kind: SourceType, query: str, k: int | None = None) -> list[tuple[Document, float]]:
-    """Hybrid retrieval: vector top candidates + BM25 keyword scoring."""
+    """Hybrid retrieval: vector candidates + full-corpus BM25, merged and re-ranked."""
     settings = get_settings()
     k = k or settings.retrieval_k
     candidate_k = max(k, settings.retrieval_candidate_k)
 
+    corpus = _corpus_for_kind(kind)
     vector_rows = _vector_candidates(kind, query, candidate_k)
-    if not vector_rows:
+    bm25_rows = _bm25_candidates(kind, query, candidate_k) if corpus else []
+
+    if not vector_rows and not bm25_rows:
         return []
 
-    vector_sims: list[float] = []
-    for row in vector_rows:
-        dist = float(row["distance"])
-        vector_sims.append(1.0 / (1.0 + dist))
+    corpus_scores: dict[str, float] = {}
+    if corpus:
+        scores = bm25_scores(
+            query,
+            [str(row["content"]) for row in corpus],
+            k1=settings.hybrid_bm25_k1,
+            b=settings.hybrid_bm25_b,
+        )
+        corpus_scores = {
+            str(corpus[i]["id"]): scores[i]
+            for i in range(len(corpus))
+        }
 
-    bm25_doc_texts = [row["content"] for row in vector_rows]
-    bm25 = bm25_scores(
-        query,
-        bm25_doc_texts,
-        k1=settings.hybrid_bm25_k1,
-        b=settings.hybrid_bm25_b,
-    )
+    by_id: dict[str, dict] = {}
+    vector_sims: dict[str, float] = {}
+    for row in vector_rows:
+        chunk_id = _row_chunk_id(row)
+        by_id[chunk_id] = row
+        dist = float(row["distance"])
+        vector_sims[chunk_id] = 1.0 / (1.0 + dist)
+
+    for row in bm25_rows:
+        chunk_id = _row_chunk_id(row)
+        by_id.setdefault(chunk_id, row)
+
+    merge_ids = set(vector_sims.keys()) | { _row_chunk_id(row) for row in bm25_rows }
 
     def _norm(xs: list[float]) -> list[float]:
         if not xs:
@@ -421,35 +524,55 @@ def hybrid_search(kind: SourceType, query: str, k: int | None = None) -> list[tu
             return [0.5 for _ in xs]
         return [(x - mn) / (mx - mn) for x in xs]
 
-    v_norm = _norm(vector_sims)
-    b_norm = _norm(bm25)
+    ordered_ids = list(merge_ids)
+    v_raw = [vector_sims.get(chunk_id, 0.0) for chunk_id in ordered_ids]
+    b_raw = [corpus_scores.get(chunk_id, 0.0) for chunk_id in ordered_ids]
+    v_norm = _norm(v_raw)
+    b_norm = _norm(b_raw)
     alpha = float(settings.hybrid_alpha)
     combined = [alpha * v + (1.0 - alpha) * b for v, b in zip(v_norm, b_norm, strict=True)]
 
-    top_idx = sorted(range(len(combined)), key=lambda i: combined[i], reverse=True)[:k]
+    from app.retrieval.chunk_quality import is_low_content_chunk, quality_bonus
+
+    adjusted = [
+        combined[i] + quality_bonus(str(by_id[ordered_ids[i]].get("content") or ""))
+        for i in range(len(combined))
+    ]
+    ranked = sorted(range(len(adjusted)), key=lambda i: adjusted[i], reverse=True)
+    preferred = [
+        i
+        for i in ranked
+        if not is_low_content_chunk(str(by_id[ordered_ids[i]].get("content") or ""))
+    ]
+    fallback = [i for i in ranked if i not in preferred]
+    top_idx = (preferred + fallback)[:k]
     hits: list[tuple[Document, float]] = []
     for i in top_idx:
-        row = vector_rows[i]
+        chunk_id = ordered_ids[i]
+        row = by_id[chunk_id]
         hits.append(
             (
                 Document(
-                    page_content=row["content"],
+                    page_content=str(row.get("content") or ""),
                     metadata={
                         "source_type": kind,
-                        "source_id": row["source_id"],
-                        "title": row["title"],
-                        "page": row["page"],
-                        "url": row["url"],
-                        "chunk_index": row["chunk_index"],
+                        "source_id": row.get("source_id"),
+                        "title": row.get("title"),
+                        "page": row.get("page"),
+                        "url": row.get("url"),
+                        "chunk_index": row.get("chunk_index"),
                     },
                 ),
-                float(combined[i]),
+                float(adjusted[i]),
             )
         )
     return hits
 
 
 def delete_by_source_id(kind: SourceType, source_id: str) -> int:
+    from app.db import chunk_catalog
+
+    chunk_catalog.delete_by_source(kind, source_id)
     if _uses_pinecone():
         from app.db import pinecone_store
 

@@ -12,7 +12,7 @@ from app.config import REGISTRY_PATH, get_settings
 from app.models.schemas import DocumentRecord
 from app.retrieval.pdf_processor import extract_pdf_documents
 from app.retrieval.registry import add_record, document_count, list_sources
-from app.retrieval.vectorstore import add_documents, indexed_counts
+from app.retrieval.vectorstore import add_documents, count_chunks_for_source, indexed_counts
 
 
 def migrate_local_registry() -> int:
@@ -160,3 +160,111 @@ def reindex_missing_vectors() -> int:
             )
             restored += 1
     return restored
+
+
+def _backfill_chunk_texts_from_pgvector() -> int:
+    from app.db import chunk_catalog
+    from app.db.pgvector_store import vector_pool
+
+    with vector_pool().connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, source_id, source_type, title, page, url, chunk_index, content
+            FROM chunks
+            ORDER BY source_type, source_id, chunk_index
+            """
+        ).fetchall()
+    if not rows:
+        return 0
+    payload = [
+        (
+            row["id"],
+            row["source_id"],
+            row["source_type"],
+            row["title"],
+            row["page"],
+            row["url"],
+            row["chunk_index"],
+            row["content"],
+        )
+        for row in rows
+    ]
+    chunk_catalog.upsert_chunk_rows(payload)
+    return len(payload)
+
+
+def _backfill_chunk_texts_from_pinecone() -> int:
+    from app.db import chunk_catalog, pinecone_store
+
+    catalog = list_sources()
+    restored = 0
+    for record in catalog.pdfs:
+        if chunk_catalog.count_for_source("pdf", record.id) > 0:
+            continue
+        if count_chunks_for_source("pdf", record.id) <= 0:
+            continue
+        ids = pinecone_store.list_chunk_ids(record.id)
+        if not ids:
+            continue
+        records = pinecone_store.fetch_chunk_records(ids)
+        payload = [
+            (
+                row["id"],
+                row["source_id"],
+                "pdf",
+                row["title"],
+                row["page"],
+                row["url"],
+                row["chunk_index"],
+                row["content"],
+            )
+            for row in records
+            if row.get("content")
+        ]
+        if payload:
+            chunk_catalog.upsert_chunk_rows(payload)
+            restored += len(payload)
+
+    for record in catalog.websites:
+        if chunk_catalog.count_for_source("web", record.id) > 0:
+            continue
+        if count_chunks_for_source("web", record.id) <= 0:
+            continue
+        ids = pinecone_store.list_chunk_ids(record.id)
+        if not ids:
+            continue
+        records = pinecone_store.fetch_chunk_records(ids)
+        payload = [
+            (
+                row["id"],
+                row["source_id"],
+                "web",
+                row["title"],
+                row["page"],
+                row["url"],
+                row["chunk_index"],
+                row["content"],
+            )
+            for row in records
+            if row.get("content")
+        ]
+        if payload:
+            chunk_catalog.upsert_chunk_rows(payload)
+            restored += len(payload)
+    return restored
+
+
+def backfill_chunk_texts() -> int:
+    """Populate chunk_texts for BM25 when vectors exist but text catalog is empty."""
+    from app.config import get_settings
+    from app.db import chunk_catalog
+
+    settings = get_settings()
+    if settings.uses_pgvector:
+        if chunk_catalog.count_for_kind("pdf") or chunk_catalog.count_for_kind("web"):
+            return 0
+        return _backfill_chunk_texts_from_pgvector()
+
+    if not settings.uses_pinecone:
+        return 0
+    return _backfill_chunk_texts_from_pinecone()

@@ -171,6 +171,7 @@ def query_by_source_type(kind: str, query_vector: list[float], top_k: int) -> li
         score = float(match.score or 0.0)
         rows.append(
             {
+                "id": match.id,
                 "content": meta.get("content") or "",
                 "title": meta.get("title") or "Untitled",
                 "page": meta.get("page"),
@@ -180,6 +181,33 @@ def query_by_source_type(kind: str, query_vector: list[float], top_k: int) -> li
                 "distance": 1.0 - score,
             }
         )
+    return rows
+
+
+def fetch_chunk_records(ids: list[str]) -> list[dict[str, Any]]:
+    """Fetch chunk metadata (no vectors) for BM25 catalog backfill."""
+    if not ids:
+        return []
+    index = pinecone_index()
+    rows: list[dict[str, Any]] = []
+    batch_size = 100
+    for start in range(0, len(ids), batch_size):
+        batch = ids[start : start + batch_size]
+        fetched = index.fetch(ids=batch)
+        for chunk_id, record in (fetched.vectors or {}).items():
+            meta = record.metadata or {}
+            rows.append(
+                {
+                    "id": chunk_id,
+                    "source_id": meta.get("source_id") or "",
+                    "source_type": meta.get("source_type") or "",
+                    "title": meta.get("title") or "Untitled",
+                    "page": meta.get("page"),
+                    "url": meta.get("url"),
+                    "chunk_index": int(meta.get("chunk_index") or 0),
+                    "content": meta.get("content") or "",
+                }
+            )
     return rows
 
 

@@ -90,17 +90,17 @@ class Settings(BaseSettings):
 
     voyage_api_key: str = ""
     voyage_model: str = "voyage-3-lite"
-    voyage_embed_batch_size: int = 24
-    voyage_batch_delay_s: float = 21.0
+    voyage_embed_batch_size: int = 110
+    voyage_batch_delay_s: float = 0.0
     voyage_max_retries: int = 6
     voyage_timeout_s: float = 60.0
 
     chunk_size: int = 1000
     chunk_overlap: int = 200
-    retrieval_k: int = 5
-    retrieval_candidate_k: int = 20
+    retrieval_k: int = 8
+    retrieval_candidate_k: int = 40
 
-    # Hybrid search: vector + BM25 keyword scoring over the vector candidate set.
+    # Hybrid search: vector candidates + full-corpus BM25 keyword retrieval.
     hybrid_enabled: bool = True
     hybrid_alpha: float = 0.6  # weight on vector similarity in the final score
     hybrid_bm25_k1: float = 1.5
@@ -109,6 +109,7 @@ class Settings(BaseSettings):
 
     max_query_chars: int = 2000
     max_upload_mb: int = 80
+    chat_history_turns: int = 8
 
     @property
     def use_voyage_embeddings(self) -> bool:
